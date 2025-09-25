@@ -1,0 +1,76 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "main", "divider" ]
+  pull_request:
+    branches: [ "main", "divider" ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }} # we run many different builds
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+    - uses: actions/checkout@v4
+      #with:
+      #  ref: 'dev' # checkout the dev branch
+    - name: make
+      run: make
+      
+    - name: Test
+      id: test
+      run: |
+        chmod +x project_part1
+        ./project_part1
+
+    - name: Calculate code coverage
+      if: ${{matrix.os == 'ubuntu-latest'}}
+      id: covr
+      run: |
+        sudo apt install -y googletest libgtest-dev build-essential gcovr
+        g++ --coverage -g -O0 -fprofile-arcs -ftest-coverage -I/usr/include/gtest -L/usr/lib/x86_64-linux-gnu test_fun.cpp -lgtest -lpthread
+        chmod +x ./a.out
+        ./a.out
+        gcovr --xml coverage.cobertura.xml
+
+    - name: Code Coverage Report
+      if: ${{matrix.os == 'ubuntu-latest'}}
+      uses: irongut/CodeCoverageSummary@v1.3.0
+      with:
+        filename: coverage.cobertura.xml
+        badge: true
+        fail_below_min: true
+        format: markdown
+        hide_branch_rate: false
+        hide_complexity: true
+        indicators: true
+        output: both
+        thresholds: '60 80'
+
+    - name: Add Coverage PR Comment
+      uses: marocchino/sticky-pull-request-comment@v2
+      if: (github.event_name == 'pull_request') && (${{matrix.os == 'ubuntu-latest'}})
+      with:
+        recreate: true
+        path: code-coverage-results.md
+    
+    - name: Get the coverage
+      if: ${{matrix.os == 'ubuntu-latest'}}
+      id: get_coverage
+      run: |
+        cat code-coverage-results.md
+        COVVALUE="$(grep 'Summary' code-coverage-results.md | awk '{print $3}' | tr -d \*)"
+        echo "COVERAGE=$COVVALUE">> $GITHUB_ENV
+    
+    - name: Create the Badge
+      if: ${{matrix.os == 'ubuntu-latest'}}
+      uses: schneegans/dynamic-badges-action@v1.0.0
+      with:
+        auth: ${{ secrets.GIST_SECRET }}
+        gistID: 0062b412a085249828efa9ad60c6d21e
+        filename: lab_device_main.json
+        label: Test Coverage
+        message: ${{ env.COVERAGE }}
+        color: green
