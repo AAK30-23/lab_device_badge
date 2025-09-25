@@ -9,6 +9,7 @@
 #include <vector>
 #include <memory>
 #include <cmath>
+#include "gtest/gtest.h"
 
 using namespace std;
 
@@ -78,7 +79,7 @@ protected:
 public:
     /**
      * @brief Add an input stream to the device.
-     * @param s A shared pointer to the input stream.
+     * @param s A shared_ptr to the input stream.
      */
     void addInput(shared_ptr<Stream> s){
       if(inputs.size() < inputAmount) inputs.push_back(s);
@@ -86,7 +87,7 @@ public:
     }
     /**
      * @brief Add an output stream to the device.
-     * @param s A shared pointer to the output stream.
+     * @param s A shared_ptr to the output stream.
      */
     void addOutput(shared_ptr<Stream> s){
       if(outputs.size() < outputAmount) outputs.push_back(s);
@@ -97,6 +98,12 @@ public:
      * @brief Update the output streams of the device (to be implemented by derived classes).
      */
     virtual void updateOutputs() = 0;
+
+    // Добавлены методы для доступа к потокам извне
+    shared_ptr<Stream> getInput(int index) { return inputs.at(index); }
+    shared_ptr<Stream> getOutput(int index) { return outputs.at(index); }
+    int getInputCount() { return inputs.size(); }
+    int getOutputCount() { return outputs.size(); }
 };
 
 class Mixer: public Device
@@ -106,6 +113,8 @@ class Mixer: public Device
     public:
       Mixer(int inputs_count): Device() {
         _inputs_count = inputs_count;
+        inputAmount = inputs_count;
+        outputAmount = MIXER_OUTPUTS;
       }
       void addInput(shared_ptr<Stream> s) {
         if (inputs.size() == _inputs_count) {
@@ -129,7 +138,7 @@ class Mixer: public Device
           throw "Should set outputs before update"s;
         }
 
-        double output_mass = sum_mass_flow / outputs.size(); // divide 0
+        double output_mass = sum_mass_flow / outputs.size();
 
         for (auto& output_stream : outputs) {
           output_stream -> setMassFlow(output_mass);
@@ -153,7 +162,7 @@ void shouldSetOutputsCorrectlyWithOneOutput() {
 
     d1.updateOutputs();
 
-    if (abs(s3->getMassFlow()) - 15 < POSSIBLE_ERROR) {
+    if (abs(s3->getMassFlow() - 15) < POSSIBLE_ERROR) {
       cout << "Test 1 passed"s << endl;
     } else {
       cout << "Test 1 failed"s << endl;
@@ -220,14 +229,16 @@ class Reactor : public Device{
 public:
     Reactor(bool isDoubleReactor) {
         inputAmount = 1;
-        if (isDoubleReactor) outputAmount = 2;
-        else inputAmount = 1;
+        if (isDoubleReactor) 
+            outputAmount = 2;
+        else 
+            outputAmount = 1;
     }
     
     void updateOutputs() override{
         double inputMass = inputs.at(0) -> getMassFlow();
-            for(int i = 0; i < outputAmount; i++){
-            double outputLocal = inputMass * (1/outputAmount);
+        for(int i = 0; i < outputAmount; i++){
+            double outputLocal = inputMass * (1.0/outputAmount);
             outputs.at(i) -> setMassFlow(outputLocal);
         }
     }
@@ -236,66 +247,261 @@ public:
 void testTooManyOutputStreams(){
     streamcounter=0;
     
-    Reactor dl = new Reactor(false);
+    Reactor dl(false);
     
     shared_ptr<Stream> s1(new Stream(++streamcounter));
     shared_ptr<Stream> s2(new Stream(++streamcounter));
     shared_ptr<Stream> s3(new Stream(++streamcounter));
     s1->setMassFlow(10.0);
-    s2->setMassFlow(5.0);
     dl.addInput(s1);
     dl.addOutput(s2);
     try{
         dl.addOutput(s3);
-    } catch(const string ex){
-         if (ex == "OUTPUT STREAM LIMIT!")
+    } catch(const char* ex){
+         if (string(ex) == "OUTPUT STREAM LIMIT!")
             cout << "Test 1 passed" << endl;
-
         return;
     }
     
-     cout << "Test 1 failed" << endl;
+    cout << "Test 1 failed" << endl;
 }
+
+
+/**
+* @class Divider
+* @brief Устройство, разделяющее один вх поток на N вых потоков с равным массовым расходом.
+*/
+class Divider : public Device
+{
+public:
+    /**
+    * @brief Создание нового делителя.
+    * @param outputs_count Число вых потоков.
+    */
+    Divider(int outputs_count);
+     /**
+    * @brief Обновляет массовый расход всех вых потоков.
+    * @details Разделение вх массового расхода поровну между всеми вых.
+    * @throw Выдает исключение при незаданных вх/вых.
+    */
+    void updateOutputs() override;
+};
+
+Divider::Divider(int outputs_count) {
+    inputAmount = 1;
+    outputAmount = outputs_count;
+}
+
+void Divider::updateOutputs() {
+    if (inputs.empty() || outputs.empty()) {
+        throw "Делитель должен иметь входные и выходные данные до обновления.";
+    }
+    double input_mass = inputs[0]->getMassFlow();
+    double output_mass = input_mass / outputs.size();
+
+    for (auto& output_stream : outputs) {
+        output_stream->setMassFlow(output_mass);
+    }
+}
+
+/**
+ * @brief Тест: делитель правильно делит поток на 3 равных выхода
+ */
+void testDividerDividesFlowEqually() {
+    std::cout << "DividerTest1: Разделение на выходы" << std::endl;
+    streamcounter = 0;
+    Divider d1(3);
+
+    auto s_in = std::make_shared<Stream>(++streamcounter);
+    auto s_out1 = std::make_shared<Stream>(++streamcounter);
+    auto s_out2 = std::make_shared<Stream>(++streamcounter);
+    auto s_out3 = std::make_shared<Stream>(++streamcounter);
+
+    s_in->setMassFlow(12.0);
+    d1.addInput(s_in);
+    d1.addOutput(s_out1);
+    d1.addOutput(s_out2);
+    d1.addOutput(s_out3);
+
+    d1.updateOutputs();
+
+    if (std::abs(s_out1->getMassFlow() - 4.0) < POSSIBLE_ERROR &&
+        std::abs(s_out2->getMassFlow() - 4.0) < POSSIBLE_ERROR &&
+        std::abs(s_out3->getMassFlow() - 4.0) < POSSIBLE_ERROR) {
+        std::cout << "Passed" << std::endl;
+    } else {
+        std::cout << "Failed" << std::endl;
+    }
+}
+
+/**
+ * @brief Тест: сумма выходных потоков = входному потоку
+ */
+void testDividerMassConservation() {
+    std::cout << "DividerTest2: Cумма выходов = входу" << std::endl;
+    streamcounter = 0;
+    Divider d1(2);
+
+    auto s_in = std::make_shared<Stream>(++streamcounter);
+    auto s_out1 = std::make_shared<Stream>(++streamcounter);
+    auto s_out2 = std::make_shared<Stream>(++streamcounter);
+
+    s_in->setMassFlow(10.0);
+    d1.addInput(s_in);
+    d1.addOutput(s_out1);
+    d1.addOutput(s_out2);
+
+    d1.updateOutputs();
+
+    double total_output = s_out1->getMassFlow() + s_out2->getMassFlow();
+    if (std::abs(total_output - 10.0) < POSSIBLE_ERROR) {
+        std::cout << "Passed" << std::endl;
+    } else {
+        std::cout << "Failed" << std::endl;
+    }
+}
+
+/**
+ * @brief Тест: поток не изменяется с 1 выходом
+ */
+void testDividerSingleOutput() {
+    std::cout << "DividerTest3: Один выход" << std::endl;
+    streamcounter = 0;
+    Divider d1(1);
+
+    auto s_in = std::make_shared<Stream>(++streamcounter);
+    auto s_out = std::make_shared<Stream>(++streamcounter);
+
+    s_in->setMassFlow(8.0);
+    d1.addInput(s_in);
+    d1.addOutput(s_out);
+
+    d1.updateOutputs();
+
+    if (std::abs(s_out->getMassFlow() - 8.0) < POSSIBLE_ERROR) {
+        std::cout << "Passed" << std::endl;
+    } else {
+        std::cout << "Failed" << std::endl;
+    }
+}
+
+/**
+ * @brief Тест: исключение при отсутствии входного потока
+ */
+void testDividerThrowsWhenNoInput() {
+    std::cout << "DividerTest4: Исключение при отсутствии входов" << std::endl;
+    streamcounter = 0;
+    Divider d1(2);
+    auto s_out = std::make_shared<Stream>(++streamcounter);
+    d1.addOutput(s_out);
+    
+    try {
+        d1.updateOutputs();
+        std::cout << "Failed" << std::endl;
+    } catch (const char* e) {
+        std::cout << "Passed" << std::endl;
+    }
+}
+
+/**
+ * @brief Тест: исключение при отсутствии выходных потоков
+ */
+void testDividerThrowsWhenNoOutputs() {
+    std::cout << "DividerTest5: Исключение при отсутствии выходов" << std::endl;
+    streamcounter = 0;
+    Divider d1(2);
+    auto s_in = std::make_shared<Stream>(++streamcounter);
+    s_in->setMassFlow(10.0);
+    d1.addInput(s_in);
+    
+    try {
+        d1.updateOutputs();
+        std::cout << "Failed" << std::endl;
+    } catch (const char* e) {
+        std::cout << "Passed" << std::endl;
+    }
+}
+
+/**
+ * @brief Тест: исключение при попытке добавить больше 1 входа
+ */
+void testDividerThrowsWhenTooManyInputs() {
+    std::cout << "DividerTest6: Исключение при слишком большем кол-ве входов" << std::endl;
+    streamcounter = 0;
+    Divider d1(2);
+
+    auto s_in1 = std::make_shared<Stream>(++streamcounter);
+    auto s_in2 = std::make_shared<Stream>(++streamcounter);
+    auto s_out = std::make_shared<Stream>(++streamcounter);
+
+    d1.addInput(s_in1);
+    
+    try {
+        d1.addInput(s_in2);
+        std::cout << "Failed" << std::endl;
+    } catch (const char* e) {
+        std::cout << "Passed" << std::endl;
+    }
+}
+
+/**
+ * @brief Основная тестовая функция для Divider (отдельная тестовая функция)
+ */
+void runDividerTests() {
+    testDividerDividesFlowEqually();      // Тест 1
+    testDividerMassConservation();        // Тест 2  
+    testDividerSingleOutput();            // Тест 3
+    testDividerThrowsWhenNoInput();       // Тест 4
+    testDividerThrowsWhenNoOutputs();     // Тест 5
+    testDividerThrowsWhenTooManyInputs(); // Тест 6
+    
+}
+
+
 
 void testTooManyInputStreams(){
     streamcounter=0;
     
-    Reactor dl = new Reactor(false);
+    Reactor dl(false);
     
     shared_ptr<Stream> s1(new Stream(++streamcounter));
+    shared_ptr<Stream> s2(new Stream(++streamcounter));
     shared_ptr<Stream> s3(new Stream(++streamcounter));
     s1->setMassFlow(10.0);
     s2->setMassFlow(5.0);
     dl.addInput(s1);
     try{
         dl.addInput(s3);
-    } catch(const string ex){
-         if (ex == "INPUT STREAM LIMIT!")
+    } catch(const char* ex){
+         if (string(ex) == "INPUT STREAM LIMIT!")
             cout << "Test 2 passed" << endl;
-
         return;
     }
     
-     cout << "Test 2 failed"s << endl;
+    cout << "Test 2 failed"s << endl;
 }
 
 void testInputEqualOutput(){
-        streamcounter=0;
+    streamcounter=0;
     
-    Reactor dl = new Reactor(true);
+    Reactor dl(true);
     
     shared_ptr<Stream> s1(new Stream(++streamcounter));
     shared_ptr<Stream> s2(new Stream(++streamcounter));
     shared_ptr<Stream> s3(new Stream(++streamcounter));
     s1->setMassFlow(10.0);
-    s2->setMassFlow(5.0);
     dl.addInput(s1);
     dl.addOutput(s2);
     dl.addOutput(s3);
     
     dl.updateOutputs();
     
-    if(dl.outputs.at(0).getMassFlow + dl.outputs.at(1).getMassFlow == dl.inputs.at(0).getMassFlow)
+    // Используем публичные методы для доступа к данным
+    double output1 = dl.getOutput(0)->getMassFlow();
+    double output2 = dl.getOutput(1)->getMassFlow();
+    double input = dl.getInput(0)->getMassFlow();
+    
+    if(abs((output1 + output2) - input) < POSSIBLE_ERROR)
         cout << "Test 3 passed" << endl;
     else
         cout << "Test 3 failed" << endl;
@@ -309,6 +515,8 @@ void tests(){
     shouldSetOutputsCorrectlyWithOneOutput();
     shouldCorrectOutputs();
     shouldCorrectInputs();
+
+     runDividerTests();
 }
 
 /**
@@ -328,19 +536,6 @@ int main()
     s1->setMassFlow(10.0);
     s2->setMassFlow(5.0);
 
-    // Create a device (e.g., Mixer) and add input/output streams
-    // Mixer d1;
-    // d1.addInput(s1);
-    // d1.addInput(s2);
-    // d1.addOutput(s3);
-
-    // Update the outputs of the device
-    // d1.updateOutputs();
-
-    // Print stream information
-//    s1->print();
-//    s2->print();
-//    s3->print();
     tests();
 
     return 0;
