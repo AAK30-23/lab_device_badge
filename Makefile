@@ -1,7 +1,7 @@
 CXXFLAGS=-std=c++17 -pthread
 CXX=g++
 all:
-	$(CXX) $(CXXFLAGS) device.cpp -o project_part1
+	$(CXX) $(CXXFLAGS) device.cpp -o device
 
 check:
 	chmod +x device
