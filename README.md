@@ -1,4 +1,4 @@
-![C++ workflow](https://github.com/AAK30-23/lab_device_badge/actions/workflows/coverage.yml/badge.svg) 
+![C++ workflow](https://github.com/AAK30-23/lab_device_badge/actions/workflows/bluh.yml/badge.svg) 
 ![My Code Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/AAK30-23/0062b412a085249828efa9ad60c6d21e/raw/lab_device_main.json)
 
 # Repo
