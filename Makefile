@@ -5,6 +5,6 @@ all:
 
 check:
 	chmod +x device
-	./project_part1
+	./device
 clean:
 	$(RM) device
